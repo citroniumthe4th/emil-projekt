@@ -4,12 +4,21 @@ import { useEffect, useRef, useState } from 'react'
 const POV = 'pov' // Emil's id; messages from this person are always "mine" (right side, green)
 const COLORS = ['#e542a3', '#1f7aec', '#d3396d', '#c75b00', '#5e47de', '#027eb5', '#a62c71', '#3b8f2a']
 const DEFAULT = {
-  group: { name: 'Group Chat', photo: '' },
+  chats: [{ id: 'main', name: 'Group Chat', photo: '', messages: [] }],
+  current: 'main',
   people: [{ id: POV, name: 'Emil Tischbein', photo: '', color: '#008069' }],
-  messages: [],
   sender: POV,
 }
 const GONE = { name: 'Deleted person', photo: '', color: '#8696a0' }
+
+const cur = d => d.chats.find(c => c.id === d.current) || d.chats[0]
+
+// Older saves had one chat ({ group, messages }); turn that into the first entry of chats
+function migrate(d) {
+  if (d.chats) return d
+  const { group, messages = [], ...rest } = d
+  return { ...rest, chats: [{ id: 'main', ...group, messages }], current: 'main' }
+}
 
 const now = () => new Date().toTimeString().slice(0, 5)
 const initials = (name = '') => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?'
@@ -121,11 +130,11 @@ export default function Home() {
   useEffect(() => {
     fetch('/api/state')
       .then(r => { if (!r.ok) throw 0; return r.json() })
-      .then(d => { sRef.current = d || DEFAULT; setS(sRef.current) })
+      .then(d => { sRef.current = d ? migrate(d) : DEFAULT; setS(sRef.current) })
       .catch(() => alert('Could not load the chat. Reload to try again.')) // never fall back to DEFAULT here: it would overwrite the saved story
   }, [])
 
-  useEffect(() => { bottom.current?.scrollIntoView() }, [s?.messages.length])
+  useEffect(() => { bottom.current?.scrollIntoView() }, [s && cur(s).messages.length, s?.current])
 
   // Apply a change, then save the whole state (saves are queued so they land in order)
   function update(fn) {
@@ -143,11 +152,11 @@ export default function Home() {
 
   const person = id => s.people.find(p => p.id === id) || GONE
   const me = person(s.sender)
-  const last = s.messages.at(-1)
+  const chat = cur(s)
 
   function send(image = '', caption = text) {
     if (!caption.trim() && !image) return
-    update(d => d.messages.push({ id: crypto.randomUUID(), from: d.sender, text: caption.trim(), image, time: now() }))
+    update(d => cur(d).messages.push({ id: crypto.randomUUID(), from: d.sender, text: caption.trim(), image, time: now() }))
     setText('')
   }
 
@@ -178,16 +187,45 @@ export default function Home() {
     setModal(null)
   }
 
+  function saveChat(g) {
+    update(d => {
+      const c = d.chats.find(x => x.id === g.id)
+      if (c) Object.assign(c, { name: g.name, photo: g.photo })
+      else d.chats.push({ id: g.id, name: g.name, photo: g.photo, messages: [] })
+      d.current = g.id
+    })
+    setModal(null)
+  }
+
+  function deleteChat(g) {
+    if (!confirm(`Delete "${g.name}" and all its messages?`)) return
+    update(d => {
+      d.chats = d.chats.filter(x => x.id !== g.id)
+      d.current = d.chats[0].id
+    })
+    setModal(null)
+  }
+
   return (
     <div className="app">
       <aside>
-        <header className="side-head">Chats</header>
-        <div className="chat-item active" onClick={() => setModal({ kind: 'group' })}>
-          <Avatar src={s.group.photo} name={s.group.name} size={49} />
-          <div className="chat-info">
-            <div className="chat-name">{s.group.name}</div>
-            <div className="sub">{last ? `${person(last.from).name}: ${last.text || '📷 Photo'}` : 'No messages yet'}</div>
-          </div>
+        <header className="side-head">
+          Chats
+          <button onClick={() => setModal({ kind: 'group', chat: { id: crypto.randomUUID(), name: '', photo: '' } })}>+ New group</button>
+        </header>
+        <div className="chat-list">
+          {s.chats.map(c => {
+            const last = c.messages.at(-1)
+            return (
+              <div key={c.id} className={`chat-item ${c.id === chat.id ? 'active' : ''}`} onClick={() => update(d => { d.current = c.id })}>
+                <Avatar src={c.photo} name={c.name} size={49} />
+                <div className="chat-info">
+                  <div className="chat-name">{c.name}</div>
+                  <div className="sub">{last ? `${person(last.from).name}: ${last.text || '📷 Photo'}` : 'No messages yet'}</div>
+                </div>
+              </div>
+            )
+          })}
         </div>
 
         <section className="people">
@@ -206,19 +244,19 @@ export default function Home() {
       </aside>
 
       <main>
-        <header className="chat-head" onClick={() => setModal({ kind: 'group' })} title="Edit group">
-          <Avatar src={s.group.photo} name={s.group.name} />
+        <header className="chat-head" onClick={() => setModal({ kind: 'group', chat })} title="Edit group">
+          <Avatar src={chat.photo} name={chat.name} />
           <div className="chat-info">
-            <div className="chat-name">{s.group.name}</div>
+            <div className="chat-name">{chat.name}</div>
             <div className="sub">{s.people.map(p => (p.id === POV ? 'You' : p.name)).join(', ')}</div>
           </div>
         </header>
 
         <div className="messages">
-          {s.messages.map((m, i) => {
+          {chat.messages.map((m, i) => {
             const p = person(m.from)
             const out = m.from === POV
-            const first = i === 0 || s.messages[i - 1].from !== m.from
+            const first = i === 0 || chat.messages[i - 1].from !== m.from
             return (
               <div key={m.id} className={`row ${out ? 'out' : 'in'} ${first ? 'first' : ''}`}>
                 {!out && (first ? <Avatar src={p.photo} name={p.name} color={p.color} size={32} /> : <div className="avatar-space" />)}
@@ -229,7 +267,7 @@ export default function Home() {
                       msg={m}
                       people={s.people}
                       onCancel={() => setEditing(null)}
-                      onSave={nm => { update(d => { d.messages[d.messages.findIndex(x => x.id === m.id)] = nm }); setEditing(null) }}
+                      onSave={nm => { update(d => { const ms = cur(d).messages; ms[ms.findIndex(x => x.id === m.id)] = nm }); setEditing(null) }}
                     />
                   ) : (
                     <>
@@ -238,7 +276,7 @@ export default function Home() {
                       <span className="time">{m.time}</span>
                       <div className="actions">
                         <button title="Edit" onClick={() => setEditing(m.id)}>✎</button>
-                        <button title="Delete" onClick={() => confirm('Delete this message?') && update(d => { d.messages = d.messages.filter(x => x.id !== m.id) })}>🗑</button>
+                        <button title="Delete" onClick={() => confirm('Delete this message?') && update(d => { const c = cur(d); c.messages = c.messages.filter(x => x.id !== m.id) })}>🗑</button>
                       </div>
                     </>
                   )}
@@ -271,10 +309,11 @@ export default function Home() {
 
       {modal?.kind === 'group' && (
         <EditModal
-          title="Edit group"
-          item={s.group}
+          title={s.chats.some(c => c.id === modal.chat.id) ? 'Edit group' : 'New group'}
+          item={modal.chat}
           onClose={() => setModal(null)}
-          onSave={g => { update(d => { d.group = g }); setModal(null) }}
+          onSave={saveChat}
+          onDelete={s.chats.length > 1 && s.chats.some(c => c.id === modal.chat.id) ? () => deleteChat(modal.chat) : null}
         />
       )}
       {modal?.kind === 'person' && (
