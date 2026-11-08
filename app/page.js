@@ -12,6 +12,8 @@ const DEFAULT = {
 const GONE = { name: 'Deleted person', photo: '', color: '#8696a0' }
 
 const cur = d => d.chats.find(c => c.id === d.current) || d.chats[0]
+// Chats saved before members existed have no list: everyone is in them. Emil is always in every chat.
+const inChat = (chat, id) => id === POV || !chat.members || chat.members.includes(id)
 
 // Older saves had one chat ({ group, messages }); turn that into the first entry of chats
 function migrate(d) {
@@ -72,7 +74,7 @@ function PhotoPicker({ src, name, color, onChange }) {
   )
 }
 
-function EditModal({ title, item, withColor, onSave, onDelete, onClose }) {
+function EditModal({ title, item, withColor, people, onSave, onDelete, onClose }) {
   const [d, setD] = useState(item)
   return (
     <div className="overlay" onClick={onClose}>
@@ -81,6 +83,23 @@ function EditModal({ title, item, withColor, onSave, onDelete, onClose }) {
         <PhotoPicker src={d.photo} name={d.name} color={d.color} onChange={photo => setD({ ...d, photo })} />
         {d.photo && <button type="button" className="link" onClick={() => setD({ ...d, photo: '' })}>Remove photo</button>}
         <input value={d.name} onChange={e => setD({ ...d, name: e.target.value })} placeholder="Name" autoFocus required />
+        {people && (
+          <fieldset className="members">
+            <legend>Members</legend>
+            {people.map(p => (
+              <label key={p.id}>
+                <input
+                  type="checkbox"
+                  checked={d.members.includes(p.id)}
+                  disabled={p.id === POV}
+                  onChange={e => setD({ ...d, members: e.target.checked ? [...d.members, p.id] : d.members.filter(x => x !== p.id) })}
+                />
+                <Avatar src={p.photo} name={p.name} color={p.color} size={28} />
+                {p.name}
+              </label>
+            ))}
+          </fieldset>
+        )}
         {withColor && (
           <label className="color">Name color <input type="color" value={d.color} onChange={e => setD({ ...d, color: e.target.value })} /></label>
         )}
@@ -151,12 +170,14 @@ export default function Home() {
   if (!s) return <div className="loading">Loading…</div>
 
   const person = id => s.people.find(p => p.id === id) || GONE
-  const me = person(s.sender)
   const chat = cur(s)
+  const members = s.people.filter(p => inChat(chat, p.id))
+  const senderId = members.some(p => p.id === s.sender) ? s.sender : POV
+  const me = person(senderId)
 
   function send(image = '', caption = text) {
     if (!caption.trim() && !image) return
-    update(d => cur(d).messages.push({ id: crypto.randomUUID(), from: d.sender, text: caption.trim(), image, time: now() }))
+    update(d => cur(d).messages.push({ id: crypto.randomUUID(), from: senderId, text: caption.trim(), image, time: now() }))
     setText('')
   }
 
@@ -172,8 +193,10 @@ export default function Home() {
   function savePerson(p) {
     update(d => {
       const i = d.people.findIndex(x => x.id === p.id)
-      if (i < 0) d.people.push(p)
-      else d.people[i] = p
+      if (i >= 0) return void (d.people[i] = p)
+      d.people.push(p)
+      cur(d).members?.push(p.id) // a new person joins the chat you're in
+      d.sender = p.id
     })
     setModal(null)
   }
@@ -190,8 +213,8 @@ export default function Home() {
   function saveChat(g) {
     update(d => {
       const c = d.chats.find(x => x.id === g.id)
-      if (c) Object.assign(c, { name: g.name, photo: g.photo })
-      else d.chats.push({ id: g.id, name: g.name, photo: g.photo, messages: [] })
+      if (c) Object.assign(c, { name: g.name, photo: g.photo, members: g.members })
+      else d.chats.push({ id: g.id, name: g.name, photo: g.photo, members: g.members, messages: [] })
       d.current = g.id
     })
     setModal(null)
@@ -211,7 +234,7 @@ export default function Home() {
       <aside>
         <header className="side-head">
           Chats
-          <button onClick={() => setModal({ kind: 'group', chat: { id: crypto.randomUUID(), name: '', photo: '' } })}>+ New group</button>
+          <button onClick={() => setModal({ kind: 'group', chat: { id: crypto.randomUUID(), name: '', photo: '', members: [POV] } })}>+ New group</button>
         </header>
         <div className="chat-list">
           {s.chats.map(c => {
@@ -233,8 +256,8 @@ export default function Home() {
             <span>Send as</span>
             <button onClick={() => setModal({ kind: 'person', person: { id: crypto.randomUUID(), name: '', photo: '', color: COLORS[(s.people.length - 1) % COLORS.length] } })}>+ Add person</button>
           </div>
-          {s.people.map(p => (
-            <div key={p.id} className={`person ${p.id === s.sender ? 'active' : ''}`} onClick={() => update(d => { d.sender = p.id })}>
+          {members.map(p => (
+            <div key={p.id} className={`person ${p.id === senderId ? 'active' : ''}`} onClick={() => update(d => { d.sender = p.id })}>
               <Avatar src={p.photo} name={p.name} color={p.color} size={36} />
               <span className="person-name">{p.name}{p.id === POV && <em> · POV</em>}</span>
               <button className="icon" title="Edit" onClick={e => { e.stopPropagation(); setModal({ kind: 'person', person: p }) }}>✎</button>
@@ -244,11 +267,11 @@ export default function Home() {
       </aside>
 
       <main>
-        <header className="chat-head" onClick={() => setModal({ kind: 'group', chat })} title="Edit group">
+        <header className="chat-head" onClick={() => setModal({ kind: 'group', chat: { ...chat, members: members.map(p => p.id) } })} title="Edit group">
           <Avatar src={chat.photo} name={chat.name} />
           <div className="chat-info">
             <div className="chat-name">{chat.name}</div>
-            <div className="sub">{s.people.map(p => (p.id === POV ? 'You' : p.name)).join(', ')}</div>
+            <div className="sub">{members.map(p => (p.id === POV ? 'You' : p.name)).join(', ')}</div>
           </div>
         </header>
 
@@ -265,7 +288,7 @@ export default function Home() {
                   {editing === m.id ? (
                     <MessageEditor
                       msg={m}
-                      people={s.people}
+                      people={[...members, ...s.people.filter(p => p.id === m.from && !inChat(chat, p.id))]}
                       onCancel={() => setEditing(null)}
                       onSave={nm => { update(d => { const ms = cur(d).messages; ms[ms.findIndex(x => x.id === m.id)] = nm }); setEditing(null) }}
                     />
@@ -311,6 +334,7 @@ export default function Home() {
         <EditModal
           title={s.chats.some(c => c.id === modal.chat.id) ? 'Edit group' : 'New group'}
           item={modal.chat}
+          people={s.people}
           onClose={() => setModal(null)}
           onSave={saveChat}
           onDelete={s.chats.length > 1 && s.chats.some(c => c.id === modal.chat.id) ? () => deleteChat(modal.chat) : null}

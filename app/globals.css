@@ -107,3 +107,6 @@ main { display: flex; flex-direction: column; min-height: 0; background: #efeae2
 .color { display: flex; align-items: center; justify-content: space-between; color: #54656f; }
 .color input { width: 44px; height: 28px; border: 0; padding: 0; background: none; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.members { border: 1px solid #e9edef; border-radius: 8px; padding: 6px 10px; margin: 0; max-height: 220px; overflow-y: auto; }
+.members legend { padding: 0 4px; font-size: 13px; color: #008069; }
+.members label { display: flex; align-items: center; gap: 10px; padding: 4px 0; cursor: pointer; }
