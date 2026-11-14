@@ -210,6 +210,22 @@ export default function Home() {
     setModal(null)
   }
 
+  // Dividers live in the message list as { type: 'divider', text } so they can sit between any two messages
+  function addDivider(beforeId) {
+    const label = prompt('Divider text', 'Tuesday 12:00 AM')?.trim()
+    if (!label) return
+    update(d => {
+      const ms = cur(d).messages
+      const i = beforeId ? ms.findIndex(x => x.id === beforeId) : ms.length
+      ms.splice(i, 0, { id: crypto.randomUUID(), type: 'divider', text: label })
+    })
+  }
+
+  function editDivider(m) {
+    const label = prompt('Divider text', m.text)?.trim()
+    if (label) update(d => { cur(d).messages.find(x => x.id === m.id).text = label })
+  }
+
   function saveChat(g) {
     update(d => {
       const c = d.chats.find(x => x.id === g.id)
@@ -238,7 +254,7 @@ export default function Home() {
         </header>
         <div className="chat-list">
           {s.chats.map(c => {
-            const last = c.messages.at(-1)
+            const last = c.messages.findLast(x => x.type !== 'divider')
             return (
               <div key={c.id} className={`chat-item ${c.id === chat.id ? 'active' : ''}`} onClick={() => update(d => { d.current = c.id })}>
                 <Avatar src={c.photo} name={c.name} size={49} />
@@ -277,6 +293,14 @@ export default function Home() {
 
         <div className="messages">
           {chat.messages.map((m, i) => {
+            if (m.type === 'divider') return (
+              <div key={m.id} className="divider">
+                <span className="pill">
+                  <span onClick={() => editDivider(m)} title="Click to edit">{m.text}</span>
+                  <button title="Delete divider" onClick={() => update(d => { const c = cur(d); c.messages = c.messages.filter(x => x.id !== m.id) })}>✕</button>
+                </span>
+              </div>
+            )
             const p = person(m.from)
             const out = m.from === POV
             const first = i === 0 || chat.messages[i - 1].from !== m.from
@@ -298,6 +322,7 @@ export default function Home() {
                       {m.text && <span className="text">{m.text}</span>}
                       <span className="time">{m.time}</span>
                       <div className="actions">
+                        <button title="Add time divider above" onClick={() => addDivider(m.id)}>🕒</button>
                         <button title="Edit" onClick={() => setEditing(m.id)}>✎</button>
                         <button title="Delete" onClick={() => confirm('Delete this message?') && update(d => { const c = cur(d); c.messages = c.messages.filter(x => x.id !== m.id) })}>🗑</button>
                       </div>
@@ -315,6 +340,7 @@ export default function Home() {
             <Avatar src={me.photo} name={me.name} color={me.color} size={28} />
             <span>{me.name}</span>
           </div>
+          <button className="icon" title="Add time divider" onClick={() => addDivider()}>🕒</button>
           <label className="icon" title="Send image">
             {sending ? '…' : '📎'}
             <input type="file" accept="image/*" hidden onChange={sendImage} disabled={sending} />
