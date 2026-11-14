@@ -145,15 +145,43 @@ export default function Home() {
   const [sending, setSending] = useState(false)
   const queue = useRef(Promise.resolve())
   const bottom = useRef(null)
+  const ver = useRef(0) // version of the saved state this page last saw
+  const pending = useRef(0) // saves not finished yet
+  const gen = useRef(0) // bumped on a conflict so queued saves built on stale data are dropped
+
+  // Show state from the server, keeping the chat and sender this viewer has open
+  function apply(d) {
+    ver.current = d.v ?? 0
+    const prev = sRef.current
+    sRef.current = prev ? { ...migrate(d), current: prev.current, sender: prev.sender } : migrate(d)
+    setS(sRef.current)
+  }
 
   useEffect(() => {
     fetch('/api/state')
       .then(r => { if (!r.ok) throw 0; return r.json() })
-      .then(d => { sRef.current = d ? migrate(d) : DEFAULT; setS(sRef.current) })
+      .then(d => { if (d) apply(d); else { sRef.current = DEFAULT; setS(DEFAULT) } })
       .catch(() => alert('Could not load the chat. Reload to try again.')) // never fall back to DEFAULT here: it would overwrite the saved story
+
+    // Pick up other people's changes. Paused while the tab is hidden to save Redis requests.
+    const t = setInterval(async () => {
+      if (pending.current || !sRef.current || document.hidden) return
+      try {
+        const r = await fetch('/api/state', { cache: 'no-store' })
+        const d = r.ok && await r.json()
+        if (d && (d.v ?? 0) > ver.current && !pending.current) apply(d)
+      } catch {}
+    }, 4000)
+    return () => clearInterval(t)
   }, [])
 
   useEffect(() => { bottom.current?.scrollIntoView() }, [s && cur(s).messages.length, s?.current])
+
+  // Switching chats or sender only changes this viewer's screen, so it isn't saved
+  function setView(patch) {
+    sRef.current = { ...sRef.current, ...patch }
+    setS(sRef.current)
+  }
 
   // Apply a change, then save the whole state (saves are queued so they land in order)
   function update(fn) {
@@ -161,10 +189,23 @@ export default function Home() {
     fn(next)
     sRef.current = next
     setS(next)
+    const g = gen.current
+    pending.current++
     queue.current = queue.current
-      .then(() => fetch('/api/state', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(next) }))
-      .then(r => { if (!r.ok) throw 0 })
+      .then(async () => {
+        if (g !== gen.current) return
+        const r = await fetch('/api/state', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...next, v: ver.current }) })
+        if (r.status === 409) {
+          gen.current++
+          apply(await r.json())
+          alert('Someone else changed the chat at the same time. You now see the latest version — please redo your last change.')
+          return
+        }
+        if (!r.ok) throw 0
+        ver.current = (await r.json()).v
+      })
       .catch(() => alert('Saving failed — your last change may not be stored.'))
+      .finally(() => pending.current--)
   }
 
   if (!s) return <div className="loading">Loading…</div>
@@ -256,7 +297,7 @@ export default function Home() {
           {s.chats.map(c => {
             const last = c.messages.findLast(x => x.type !== 'divider')
             return (
-              <div key={c.id} className={`chat-item ${c.id === chat.id ? 'active' : ''}`} onClick={() => update(d => { d.current = c.id })}>
+              <div key={c.id} className={`chat-item ${c.id === chat.id ? 'active' : ''}`} onClick={() => setView({ current: c.id })}>
                 <Avatar src={c.photo} name={c.name} size={49} />
                 <div className="chat-info">
                   <div className="chat-name">{c.name}</div>
@@ -273,7 +314,7 @@ export default function Home() {
             <button onClick={() => setModal({ kind: 'person', person: { id: crypto.randomUUID(), name: '', photo: '', color: COLORS[(s.people.length - 1) % COLORS.length] } })}>+ Add person</button>
           </div>
           {members.map(p => (
-            <div key={p.id} className={`person ${p.id === senderId ? 'active' : ''}`} onClick={() => update(d => { d.sender = p.id })}>
+            <div key={p.id} className={`person ${p.id === senderId ? 'active' : ''}`} onClick={() => setView({ sender: p.id })}>
               <Avatar src={p.photo} name={p.name} color={p.color} size={36} />
               <span className="person-name">{p.name}{p.id === POV && <em> · POV</em>}</span>
               <button className="icon" title="Edit" onClick={e => { e.stopPropagation(); setModal({ kind: 'person', person: p }) }}>✎</button>
