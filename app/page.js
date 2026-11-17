@@ -23,6 +23,13 @@ function migrate(d) {
 }
 
 const now = () => new Date().toTimeString().slice(0, 5)
+// Colors "@Full Name" (any person) or "@word" blue. Purely visual, no notifications.
+function withMentions(text, people) {
+  const names = people.map(p => p.name).filter(Boolean).sort((a, b) => b.length - a.length)
+    .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const re = new RegExp(`((?<![\\p{L}\\p{N}])@(?:${[...names, '[\\p{L}\\p{N}_]+'].join('|')}))`, 'giu')
+  return text.split(re).map((part, i) => i % 2 ? <span key={i} className="mention">{part}</span> : part)
+}
 const initials = (name = '') => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?'
 
 // Downscale before upload: keeps files small and under Vercel's 4.5MB request limit
@@ -360,7 +367,7 @@ export default function Home() {
                   ) : (
                     <>
                       {m.image && <img className="photo" src={m.image} alt="" />}
-                      {m.text && <span className="text">{m.text}</span>}
+                      {m.text && <span className="text">{withMentions(m.text, s.people)}</span>}
                       <span className="time">{m.time}</span>
                       <div className="actions">
                         <button title="Add time divider above" onClick={() => addDivider(m.id)}>🕒</button>
