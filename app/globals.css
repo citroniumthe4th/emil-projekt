@@ -84,7 +84,7 @@ main { display: flex; flex-direction: column; min-height: 0; background: #efeae2
 .editor-img img { display: block; max-width: 200px; border-radius: 6px; }
 
 /* Composer */
-.composer { display: flex; align-items: flex-end; gap: 8px; padding: 8px 16px; background: #f0f2f5; }
+.composer { position: relative; display: flex; align-items: flex-end; gap: 8px; padding: 8px 16px; background: #f0f2f5; }
 .sending-as {
   display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px; margin-bottom: 2px;
   border-radius: 18px; background: #fff; font-size: 13px; max-width: 180px; white-space: nowrap;
@@ -121,3 +121,10 @@ main { display: flex; flex-direction: column; min-height: 0; background: #efeae2
 .divider .pill:hover button { display: block; }
 .divider .pill button:hover { color: #ea0038; }
 .mention { color: #027eb5; font-weight: 500; }
+.mention-list {
+  position: absolute; bottom: 100%; left: 16px; right: 16px; max-height: 240px; overflow-y: auto;
+  margin: 0 0 6px; padding: 6px 0; list-style: none; background: #fff; border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(11, 20, 26, .2); z-index: 5;
+}
+.mention-list li { display: flex; align-items: center; gap: 10px; padding: 6px 14px; cursor: pointer; }
+.mention-list li.active, .mention-list li:hover { background: #f0f2f5; }

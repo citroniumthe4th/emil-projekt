@@ -147,6 +147,9 @@ export default function Home() {
   const [s, setS] = useState(null)
   const sRef = useRef(null)
   const [text, setText] = useState('')
+  const [caret, setCaret] = useState(0)
+  const [pick, setPick] = useState(0)
+  const ta = useRef()
   const [editing, setEditing] = useState(null)
   const [modal, setModal] = useState(null)
   const [sending, setSending] = useState(false)
@@ -222,6 +225,30 @@ export default function Home() {
   const members = s.people.filter(p => inChat(chat, p.id))
   const senderId = members.some(p => p.id === s.sender) ? s.sender : POV
   const me = person(senderId)
+
+  // "@" suggestions: people in this chat whose name starts with what's typed after the @
+  const at = text.slice(0, caret).match(/(?:^|\s)@([^@\n]*)$/)
+  const sugg = at ? members.filter(p => p.name.toLowerCase().startsWith(at[1].toLowerCase())) : []
+  const picked = Math.min(pick, sugg.length - 1)
+  function mention(p) {
+    const start = caret - at[1].length
+    const c = start + p.name.length + 1
+    setText(text.slice(0, start) + p.name + ' ' + text.slice(caret))
+    setCaret(c)
+    requestAnimationFrame(() => { ta.current.focus(); ta.current.setSelectionRange(c, c) })
+  }
+  function keyDown(e) {
+    if (sugg.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault()
+      setPick((picked + (e.key === 'ArrowDown' ? 1 : -1) + sugg.length) % sugg.length)
+    } else if (sugg.length && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) {
+      e.preventDefault()
+      mention(sugg[picked])
+    } else if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      send()
+    }
+  }
 
   function send(image = '', caption = text) {
     if (!caption.trim() && !image) return
@@ -393,12 +420,24 @@ export default function Home() {
             {sending ? '…' : '📎'}
             <input type="file" accept="image/*" hidden onChange={sendImage} disabled={sending} />
           </label>
+          {sugg.length > 0 && (
+            <ul className="mention-list">
+              {sugg.map((p, i) => (
+                <li key={p.id} className={i === picked ? 'active' : ''} onMouseDown={e => { e.preventDefault(); mention(p) }}>
+                  <Avatar src={p.photo} name={p.name} color={p.color} size={28} />
+                  {p.name}
+                </li>
+              ))}
+            </ul>
+          )}
           <textarea
+            ref={ta}
             rows={1}
             value={text}
             placeholder="Type a message"
-            onChange={e => setText(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+            onChange={e => { setText(e.target.value); setCaret(e.target.selectionStart); setPick(0) }}
+            onSelect={e => setCaret(e.target.selectionStart)}
+            onKeyDown={keyDown}
           />
           <button className="send" onClick={() => send()} title="Send">➤</button>
         </footer>
